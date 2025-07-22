@@ -1,0 +1,7 @@
+Welcome to CMA, our shared workspace for storing and scaling product analytics work across the team. This repository is the single source of truth for:
+
+1. Analytical methodologies (e.g. causal inference, retention analysis, funnel deep dives)
+
+2. Reusable models (e.g. pLTV, attribution, segmentation)
+
+3. Project-specific analysis code (e.g. feature experiments, marketing impact, onboarding diagnostics)
