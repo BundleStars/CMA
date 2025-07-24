@@ -1,0 +1,193 @@
+-- first things first, work out royalty lines
+
+
+with product_royalties as (
+	select
+		od.product_id,
+		od.bundle_id,
+		od.promo_id,
+		od.royalty_percentage,
+		od.fixed_royalty_currency,
+		od.fixed_royalty_local,
+		od.fixed_royalty_taxable,
+		a.royalty_type as "bundle_royalty_type",
+		a.tier_id,
+		a.tier_number,
+		b.royalty_type as "product_royalty_type"
+	from shop.order_details od
+		left join (
+			select
+				p.product_id,
+				p.product_type,
+				p.royalty_type,
+				bt.tier_id,
+				bt.tier_number
+			from shop.products p
+			left join shop.bundle_tiers bt on bt.bundle_id = p.product_id
+			where p.product_type = 'bundle'
+		) a on a.product_id = od.bundle_id
+		left join (
+			select
+				p.product_id,
+				p.product_type,
+				p.royalty_type
+			from shop.products p
+			where p.product_type <> 'bundle'
+		) b on b.product_id = od.product_id
+	where od.status not in ('CANCELLED', 'INITIALISED')
+		and od.order_date >= '2025-07-23'
+		group by 1,2,3,4,5,6,7,8,9,10,11
+),
+
+--find local pricing for sold products
+--non bundle pricing
+standard_pricing as (
+	select
+		product_type,
+		product_id,
+		upper(replace(product, 'price_', '')) as "currency",
+		price
+	from (
+		select
+			p.product_id,
+			p.product_type,
+			p.price_aud,
+			p.price_cad,
+			p.price_eur,
+			p.price_gbp,
+			p.price_jpy,
+			p.price_rub,
+			p.price_usd
+		from shop.products p
+		where p.product_type <> 'bundle'
+		)
+	unpivot(
+		price for product in (price_aud, price_cad, price_eur, price_gbp, price_jpy, price_rub, price_usd) 
+	)
+),
+
+price_discounts as (
+	select
+		pd.id,
+		pd.product_id,
+		pd.valid_from,
+		pd.valid_until,
+		pd.self_funded_percent,
+		pd.discount_percent
+	from shop.product_discounts pd
+	--join (select p.product_id from shop.products p group by 1) a on a.product_id = pd.product_id
+	join (select od.bundle_id from shop.order_details od group by 1) a on a.bundle_id = pd.product_id
+	group by 1,2,3,4,5,6
+),
+
+vouchers as (
+	select 
+		v.id as "voucher_id",
+		v."name" as "voucher_name",
+		v.discount_percent,
+		v.publisher_funded_percent,
+		v.discount_type
+	from shop.vouchers v
+),
+
+order_data as (
+	select
+		oli.iid,
+		oli.iid_status,
+		oli.order_id,
+		oli.user_id,
+		oli.product_id,
+		oli.product_name,
+		oli.bundle_name,
+		oli.bundle_id,
+		oli.tier_id,
+		oli.promo_name,
+		oli.promo_id,
+		oli.supplier_id,
+		oli.item_type,
+		oli.bundle_type,
+		oli.mystery_bundle,
+		o.currency,
+		o.discount_id,
+		o.discount_percent,
+		o.voucher_id,
+		o.vat_rate,
+		count(oli.iid) over partition by oli.order_id as "order_quantity",
+		count(oli.iid) over partition by oli.order_id, oli.promo_id as "order_promo_quantity",
+		count(oli.iid) over partition by oli.order_id, oli.bundle_id as "order_bundle_quantity"
+	from sales.order_line_items oli
+	join sales.orders o on o.order_id = oli.order_id
+	)
+	
+	
+select
+	od.iid,
+	od.order_id,
+	od.order_date,
+	od.product_id,
+	od.bundle_id,
+	od.promo_id,
+	od.order_promo_quantity,
+	od.order_bundle_quantity,
+	od.tier_id,
+	od.vat_rate,
+	--local_price_calculation
+	---default_local_price
+	case
+		when od.promo_id is not null then a.price / od.order_promo_quantity
+		when od.bundle_id is not null then b.price / od.order_bundle_quantity
+		when od.promo_id is null and od.bundle_id is null then c.price
+	end as "local_price_no_discount",
+	pd.discount_percent as "product_discount_percent",
+	pd.self_funded_percent as "product_self_funded_percent",
+	-- apply voucher code if applicable
+	od.voucher_id,
+	v.discount_percent as "voucher_discount_percent",
+	v.self_funded_percent as "voucher_self_funded_percent"
+	-- local price calculation
+	((1 - nvl(pd.product_discount_percent,0)) * "local_price_no_discount") * (1 - nvl(voucher_discount_percent,0)) as "local_price"
+	--known costs
+	"local_price" * (1 / ca.from_gbp) as "gbp_revenue_ex_vat",
+	"gbp_revenue_ex" * (od.vat_rate / 100 ) as "vat_amount_gbp",
+	"gbp_revenue_ex_vat" - "vat_amount_gbp" as "gbp_revenue_inc_vat",
+	--cost split
+	"local_price" / (sum("local_price") over partition by od.order_id) as cost_split_multiplier,
+	
+	
+	
+	
+	
+	
+	
+--	"local_price" * (od.vat_rate / 100) as "vat_amount_local",
+--	"local_price" as "revenue_ex_vat_local"
+--	"local_price" - "vat_amount_local" as "revenue_inc_vat_local",
+from order_data od
+--joining in base prices
+left join 
+	(select
+		'promo' as product_type,
+		pamtp.pick_and_mix_id,
+		cast(pamtp.quantity as varchar) as "quantity",
+		pamtp.currency as "currency",
+		pamtp.price as "price"
+	from shop.pick_and_mix_tier_prices pamtp 
+	group by 1,2,3,4,5
+	) a on a.pick_and_mix_id = od.promo_id and a.quantity = "promo_quantity" and a.currency = od.currency
+left join 
+	(select
+		'bundle' as product_type,
+		btp.bundle_id,
+		btp.tier_id as "tier_id",
+		btp.currency as "currency",
+		btp.price as "price"
+	from shop.bundle_tier_prices btp
+	group by 1,2,3,4,5
+	) b on b.bundle_id = od.bundle_id and b.tier_id = od.tier_id and b.currency = od.currency
+left join standard_pricing c on c.product_id = od.product_id and c.currency = od.currency
+-- joining in product discounts
+left join product_discounts pd on pd.product_id = od.product_id and od.order_date >= pd.valid_from and od.order_date <= pd.valid_until
+-- joining in vouchers
+left join vouchers v on v.voucher_id = od.voucher_id
+left join public.currency_all ca on ca.date = date_trunc('day', od.order_date) and ca.currency = od.currency
+left join shop.adyen_fees on 
