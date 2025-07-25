@@ -117,9 +117,9 @@ order_data as (
 		count(oli.iid) over partition by oli.order_id, oli.bundle_id as "order_bundle_quantity"
 	from sales.order_line_items oli
 	join sales.orders o on o.order_id = oli.order_id
-	)
+	),
 	
-	
+local_price_step as (
 select
 	od.iid,
 	od.order_id,
@@ -150,18 +150,6 @@ select
 	"local_price" * (1 / ca.from_gbp) as "gbp_revenue_ex_vat",
 	"gbp_revenue_ex" * (od.vat_rate / 100 ) as "vat_amount_gbp",
 	"gbp_revenue_ex_vat" - "vat_amount_gbp" as "gbp_revenue_inc_vat",
-	--cost split
-	"local_price" / (sum("local_price") over partition by od.order_id) as cost_split_multiplier,
-	
-	
-	
-	
-	
-	
-	
---	"local_price" * (od.vat_rate / 100) as "vat_amount_local",
---	"local_price" as "revenue_ex_vat_local"
---	"local_price" - "vat_amount_local" as "revenue_inc_vat_local",
 from order_data od
 --joining in base prices
 left join 
@@ -190,4 +178,27 @@ left join product_discounts pd on pd.product_id = od.product_id and od.order_dat
 -- joining in vouchers
 left join vouchers v on v.voucher_id = od.voucher_id
 left join public.currency_all ca on ca.date = date_trunc('day', od.order_date) and ca.currency = od.currency
-left join shop.adyen_fees on 
+)
+
+select
+	lps.*,
+	"local_price" / (sum("local_price") over partition by od.order_id) as cost_split_multiplier,
+	b.transaction_fees * cost_split_multiplier as "transaction_fee",
+	b.method_fee * cost_split_multiplier as "method_fee",
+	b.adyen_fee * cost_split_multiplier as "adyen_fee",
+	c.affiliate_fee * cost_split_multiplier as "affiliate_fee",
+	c.affiliate_commission * cost_split_multiplier as "affiliate_commission",
+	
+	
+from local_price_step a
+left join shop.adyen_fees b on b.order_id = od.order_id
+left join shop.affiliate_winning_commissions c on c.order_id = od.order_id
+
+
+;
+select
+*
+from public.currency_all ca 
+limit 200
+	
+	
