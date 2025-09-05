@@ -1,7 +1,30 @@
-Welcome to CMA, our shared workspace for storing and scaling product analytics work across the team. This repository is the single source of truth for:
+# **CMA – Centralised Product Analytics Repository**
 
-1. Analytical methodologies (e.g. causal inference, retention analysis, funnel deep dives)
+Welcome to **CMA**, our shared workspace for storing and scaling product analytics work across the team. This repository serves as the single source of truth for:
 
-2. Reusable models (e.g. pLTV, attribution, segmentation)
+---
 
-3. Project-specific analysis code (e.g. feature experiments, marketing impact, onboarding diagnostics)
+### What You'll Find Here
+
+1. **Analytical Methodologies**  
+   _Causal inference, retention analysis, funnel deep dives, etc._
+
+2. **Reusable Models**  
+   _Customer lifetime value (pLTV), attribution modelling, segmentation, uplift models, etc._
+
+3. **Project-Specific Analysis Code**  
+   _Feature experiments, onboarding diagnostics, marketing impact studies, etc._
+
+---
+
+### Getting Started
+
+To get up and running:
+
+```bash
+git clone https://github.com/your-org/CMA.git
+cd CMA
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env  # Add your Redshift credentials here
